@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from 'react';
-import { View, Pressable, StyleSheet, Animated } from 'react-native';
+import { View, Pressable, StyleSheet, Animated, Platform } from 'react-native';
 import PropTypes from 'prop-types';
 import { useTheme } from '@react-navigation/native';
 import { useSelector, useDispatch } from 'react-redux';
@@ -8,7 +8,7 @@ import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { RectButton } from 'react-native-gesture-handler';
 import { getTextSubstringWithEllipsis } from 'helpers';
 import { findLastMessage, getInboxName } from 'helpers/conversationHelpers';
-import { getTypingUsersText } from 'helpers';
+import { getTypingUsersText } from 'helpers/conversationHelpers';
 import ConversationContent from './ConversationContent';
 import ConversationAttachment from './ConversationAttachment';
 import { dynamicTime } from 'helpers/TimeHelper';
@@ -19,6 +19,9 @@ import { CONVERSATION_EVENTS } from 'constants/analyticsEvents';
 
 import ConversationLabel from './ConversationLabels';
 import ConversationPriority from './ConversationPriority';
+import { selectors as contactSelectors } from 'reducer/contactSlice';
+
+const isAndroid = Platform.OS === 'android';
 
 const propTypes = {
   item: PropTypes.shape({
@@ -30,6 +33,7 @@ const propTypes = {
         name: PropTypes.string,
         thumbnail: PropTypes.string,
         availability_status: PropTypes.string,
+        id: PropTypes.number,
       }),
       channel: PropTypes.string,
     }),
@@ -59,7 +63,7 @@ const ConversationItem = ({ item, conversationTypingUsers, onPress, showAssignee
   const {
     meta: {
       assignee,
-      sender: { name, thumbnail, availability_status: availabilityStatus },
+      sender: { name, thumbnail, id: contactId },
       channel,
     },
     additional_attributes: additionalAttributes = {},
@@ -68,6 +72,10 @@ const ConversationItem = ({ item, conversationTypingUsers, onPress, showAssignee
     unread_count: unreadCount,
     priority,
   } = item;
+
+  const contact = useSelector(state => contactSelectors.getContactById(state, contactId));
+
+  const { availability_status: availabilityStatus } = contact || {};
 
   const assigneeName = assignee?.name;
   const lastMessage = findLastMessage(item);
@@ -78,8 +86,9 @@ const ConversationItem = ({ item, conversationTypingUsers, onPress, showAssignee
 
   const hasPriority = priority !== null;
 
-  const content = lastMessage?.content;
+  const content = lastMessage?.content || '';
   const { created_at, attachments, message_type, private: isPrivate } = lastMessage;
+
   const {
     name: inboxName = null,
     channel_type: channelType = null,
@@ -88,6 +97,12 @@ const ConversationItem = ({ item, conversationTypingUsers, onPress, showAssignee
     inboxes,
     inboxId,
   });
+
+  const isEmailChannel = channelType === 'Channel::Email';
+
+  const lastMessageContent = isEmailChannel
+    ? lastMessage?.content_attributes?.email?.subject
+    : lastMessage?.content;
 
   const inboxDetails = inboxes ? inboxes.find(inbox => inbox.id === inboxId) : {};
 
@@ -229,7 +244,7 @@ const ConversationItem = ({ item, conversationTypingUsers, onPress, showAssignee
                     <ConversationAttachment attachment={attachments[0]} />
                   ) : (
                     <ConversationContent
-                      content={content}
+                      content={lastMessageContent}
                       messageType={message_type}
                       isPrivate={isPrivate}
                       unReadCount={unreadCount}
@@ -284,7 +299,7 @@ const createStyles = theme => {
     },
     avatarView: {
       alignSelf: 'flex-start',
-      marginTop: spacing.large,
+      marginTop: !isAndroid ? 30 : 34,
       marginRight: spacing.smaller,
     },
     contentView: {

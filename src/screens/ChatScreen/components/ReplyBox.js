@@ -1,6 +1,14 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useTheme } from '@react-navigation/native';
-import { View, Dimensions, TextInput, StyleSheet } from 'react-native';
+import {
+  View,
+  Dimensions,
+  TextInput,
+  StyleSheet,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
+} from 'react-native';
 import { Text, Icon, Pressable } from 'components';
 import { MentionInput } from 'react-native-controlled-mentions';
 import PropTypes from 'prop-types';
@@ -15,7 +23,7 @@ import MentionUser from './MentionUser.js';
 import AnalyticsHelper from 'helpers/AnalyticsHelper';
 import { CONVERSATION_EVENTS } from 'constants/analyticsEvents';
 import conversationActions from 'reducer/conversationSlice.action';
-import CannedResponsesContainer from '../containers/CannedResponsesContainer';
+import CannedResponses from './CannedResponses';
 import { inboxAgentSelectors, actions as inboxAgentActions } from 'reducer/inboxAgentsSlice';
 import { selectUser } from 'reducer/authSlice';
 import ModalView from 'components/Modal/ModalView.js';
@@ -23,6 +31,7 @@ import {
   getMessageVariables,
   getUndefinedVariablesInMessage,
   replaceVariablesInMessage,
+  createTypingIndicator,
 } from '@chatwoot/utils';
 
 const propTypes = {
@@ -31,6 +40,14 @@ const propTypes = {
   inboxId: PropTypes.number,
   enableReplyButton: PropTypes.bool,
 };
+
+const isAndroid = Platform.OS === 'android';
+const TYPING_INDICATOR_IDLE_TIME = 4000;
+
+// eslint-disable-next-line react/prop-types
+const DismissKeyboard = ({ children }) => (
+  <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>{children}</TouchableWithoutFeedback>
+);
 
 const ReplyBox = ({ conversationId, inboxId, conversationDetails, enableReplyButton }) => {
   const theme = useTheme();
@@ -55,8 +72,30 @@ const ReplyBox = ({ conversationId, inboxId, conversationDetails, enableReplyBut
     }
   }, [dispatch, inboxId]);
 
+  const dispatchTypingStatus = useCallback(
+    status => {
+      dispatch(conversationActions.toggleTypingStatus({ conversationId, typingStatus: status }));
+    },
+    [dispatch, conversationId],
+  );
+
+  const typingIndicator = useMemo(
+    () =>
+      createTypingIndicator(
+        () => dispatchTypingStatus('on'),
+        () => dispatchTypingStatus('off'),
+        TYPING_INDICATOR_IDLE_TIME,
+      ),
+    [dispatchTypingStatus],
+  );
+
+  const startTyping = useCallback(() => {
+    typingIndicator.start();
+  }, [typingIndicator]);
+
   const onNewMessageChange = text => {
     setMessage(text);
+    startTyping();
     if (text.charAt(0) === '/') {
       const query = text.substring(1) ? text.substring(1).toLowerCase() : ' ';
       setCannedResponseSearchKey(query);
@@ -64,6 +103,15 @@ const ReplyBox = ({ conversationId, inboxId, conversationDetails, enableReplyBut
       setCannedResponseSearchKey('');
     }
   };
+
+  const onBlur = useCallback(() => {
+    typingIndicator.stop();
+  }, [typingIndicator]);
+
+  useEffect(() => {
+    return () => typingIndicator.stop();
+  }, [typingIndicator]);
+
   const onCCMailChange = mail => {
     setCCEmails(mail);
   };
@@ -87,16 +135,10 @@ const ReplyBox = ({ conversationId, inboxId, conversationDetails, enableReplyBut
     isAnEmailChannelAndNotInPrivateNote() ? { borderTopWidth: 0 } : { borderTopWidth: 1 };
   };
 
-  const onBlur = () => {
-    dispatch(conversationActions.toggleTypingStatus({ conversationId, typingStatus: 'off' }));
-  };
-  const onFocus = () => {
-    dispatch(conversationActions.toggleTypingStatus({ conversationId, typingStatus: 'on' }));
-  };
-
   const messageVariables = () => {
     const variables = getMessageVariables({
       conversation: conversationDetails,
+      contact: conversationDetails?.meta?.sender,
     });
     return variables;
   };
@@ -177,6 +219,7 @@ const ReplyBox = ({ conversationId, inboxId, conversationDetails, enableReplyBut
         setBCCEmails('');
         setAttachmentDetails(null);
         setPrivateMode(false);
+        setUndefinedVariablesModal(false);
       }
     }
   };
@@ -218,117 +261,119 @@ const ReplyBox = ({ conversationId, inboxId, conversationDetails, enableReplyBut
   const enableReplyBox = (message || attachmentDetails) && enableReplyButton ? true : false;
   return (
     <React.Fragment>
-      {attachmentDetails && (
-        <View style={styles.attachmentWrap}>
-          <AttachmentPreview
-            attachmentDetails={attachmentDetails}
-            onRemoveAttachment={onRemoveAttachment}
-          />
-        </View>
-      )}
-      {cannedResponseSearchKey ? (
-        <CannedResponsesContainer
-          onClick={onCannedResponseSelect}
-          searchKey={cannedResponseSearchKey}
-        />
-      ) : null}
-      <ModalView
-        showModal={showUndefinedVariablesModal}
-        headerText={i18n.t('CONVERSATION.UNDEFINED_VARIABLES_TITLE')}
-        contentText={undefinedVariableText}
-        buttonText={i18n.t('CONVERSATION.UNDEFINED_VARIABLES_CLOSE')}
-        onPressClose={() => setUndefinedVariablesModal(false)}
-      />
-      {isAnEmailChannelAndNotInPrivateNote() && emailFields && (
-        <View style={styles.emailFields}>
-          <View style={styles.emailFieldsTextWrap}>
-            <Text medium sm color={colors.text} style={styles.emailFieldLabel}>
-              {'Cc'}
-            </Text>
-            <TextInput
-              style={styles.ccInputView}
-              value={ccEmails}
-              onChangeText={onCCMailChange}
-              placeholder="Emails separated by commas"
-              placeholderTextColor={colors.textLighter}
+      <View style={styles.replyBoxContainer}>
+        {attachmentDetails && (
+          <View style={styles.attachmentWrap}>
+            <AttachmentPreview
+              attachmentDetails={attachmentDetails}
+              onRemoveAttachment={onRemoveAttachment}
             />
           </View>
-          <View style={styles.emailFieldsTextWrap}>
-            <Text medium sm color={colors.text} style={styles.emailFieldLabel}>
-              {'Bcc'}
-            </Text>
-            <TextInput
-              style={styles.bccInputView}
-              value={bccEmails}
-              onChangeText={onBCCMailChange}
-              placeholder="Emails separated by commas"
-              placeholderTextColor={colors.textLighter}
-            />
-          </View>
-        </View>
-      )}
-
-      <View style={[isPrivate ? styles.privateView : styles.replyView, inputBorderColor()]}>
-        {isAnEmailChannelAndNotInPrivateNote() && !emailFields && (
-          <Text
-            medium
-            sm
-            color={colors.primaryColorDark}
-            style={styles.emailFieldToggleButton}
-            onPress={toggleCcBccInputs}>
-            {'Cc/Bcc'}
-          </Text>
         )}
-        <MentionInput
-          style={[styles.inputView, inputFieldColor()]}
-          value={message}
-          onChange={onNewMessageChange}
-          partTypes={[
-            {
-              allowedSpacesCount: 0,
-              isInsertSpaceAfterMention: true,
-              trigger: '@',
-              renderSuggestions,
-              textStyle: { fontWeight: 'bold', color: 'white', backgroundColor: '#8c9eb6' },
-            },
-            {
-              pattern: /\[([^\]]+)\]\(([^\)]+)\)/g,
-              textStyle: { color: colors.primaryColor },
-            },
-          ]}
-          multiline={true}
-          placeholderTextColor={colors.textLighter}
-          placeholder={
-            isPrivate
-              ? `${i18n.t('CONVERSATION.PRIVATE_MSG_INPUT')}`
-              : `${i18n.t('CONVERSATION.TYPE_MESSAGE')}`
-          }
-          onBlur={onBlur}
-          onFocus={onFocus}
+        {cannedResponseSearchKey ? (
+          <CannedResponses onClick={onCannedResponseSelect} searchKey={cannedResponseSearchKey} />
+        ) : null}
+        <ModalView
+          showModal={showUndefinedVariablesModal}
+          headerText={i18n.t('CONVERSATION.UNDEFINED_VARIABLES_TITLE')}
+          contentText={undefinedVariableText}
+          buttonText={i18n.t('CONVERSATION.UNDEFINED_VARIABLES_CLOSE')}
+          onPressClose={() => setUndefinedVariablesModal(false)}
         />
+        {isAnEmailChannelAndNotInPrivateNote() && emailFields && (
+          <View style={styles.emailFields}>
+            <View style={styles.emailFieldsTextWrap}>
+              <Text medium sm color={colors.text} style={styles.emailFieldLabel}>
+                {'Cc'}
+              </Text>
+              <TextInput
+                style={styles.ccInputView}
+                value={ccEmails}
+                onChangeText={onCCMailChange}
+                placeholder="Emails separated by commas"
+                placeholderTextColor={colors.textLighter}
+              />
+            </View>
+            <View style={styles.emailFieldsTextWrap}>
+              <Text medium sm color={colors.text} style={styles.emailFieldLabel}>
+                {'Bcc'}
+              </Text>
+              <TextInput
+                style={styles.bccInputView}
+                value={bccEmails}
+                onChangeText={onBCCMailChange}
+                placeholder="Emails separated by commas"
+                placeholderTextColor={colors.textLighter}
+              />
+            </View>
+          </View>
+        )}
 
-        <View style={styles.buttonViews}>
-          <View style={styles.attachIconView}>
-            <Attachment conversationId={conversationId} onSelectAttachment={onSelectAttachment} />
-            <Pressable style={styles.privateNoteView} onPress={togglePrivateMode}>
+        <View style={[isPrivate ? styles.privateView : styles.replyView, inputBorderColor()]}>
+          {isAnEmailChannelAndNotInPrivateNote() && !emailFields && (
+            <Text
+              medium
+              sm
+              color={colors.primaryColorDark}
+              style={styles.emailFieldToggleButton}
+              onPress={toggleCcBccInputs}>
+              {'Cc/Bcc'}
+            </Text>
+          )}
+          <DismissKeyboard>
+            <MentionInput
+              style={[styles.inputView, inputFieldColor()]}
+              value={message}
+              onChange={onNewMessageChange}
+              partTypes={[
+                {
+                  allowedSpacesCount: 0,
+                  isInsertSpaceAfterMention: true,
+                  trigger: '@',
+                  renderSuggestions,
+                  textStyle: { fontWeight: 'bold', color: 'white', backgroundColor: '#8c9eb6' },
+                },
+                {
+                  // eslint-disable-next-line no-useless-escape
+                  pattern: /\[([^\]]+)\]\(([^\)]+)\)/g,
+                  textStyle: { color: colors.primaryColor },
+                },
+              ]}
+              multiline={true}
+              placeholderTextColor={colors.textLighter}
+              placeholder={
+                isPrivate
+                  ? `${i18n.t('CONVERSATION.PRIVATE_MSG_INPUT')}`
+                  : `${i18n.t('CONVERSATION.TYPE_MESSAGE')}`
+              }
+              onBlur={onBlur}
+              returnKeyType="done"
+            />
+          </DismissKeyboard>
+
+          <View style={styles.buttonViews}>
+            <View style={styles.attachIconView}>
+              <Attachment conversationId={conversationId} onSelectAttachment={onSelectAttachment} />
+              <Pressable style={styles.privateNoteView} onPress={togglePrivateMode}>
+                <Icon
+                  icon="lock-closed-outline"
+                  color={isPrivate ? colors.primaryColor : colors.textLight}
+                  size={24}
+                />
+              </Pressable>
+            </View>
+            <Pressable
+              style={[styles.sendButtonView, sendMessageButtonWrapStyles()]}
+              disabled={!enableReplyBox}
+              onPress={onNewMessageAdd}>
               <Icon
-                icon="lock-closed-outline"
-                color={isPrivate ? colors.primaryColor : colors.textLight}
+                icon="send-outline"
+                style={styles.sendButton}
+                color={enableReplyBox ? colors.primaryColor : colors.background}
                 size={24}
               />
             </Pressable>
           </View>
-          <Pressable
-            style={[styles.sendButtonView, sendMessageButtonWrapStyles()]}
-            disabled={!enableReplyBox}
-            onPress={onNewMessageAdd}>
-            <Icon
-              icon="send-outline"
-              style={styles.sendButton}
-              color={enableReplyBox ? colors.primaryColor : colors.background}
-              size={24}
-            />
-          </Pressable>
         </View>
       </View>
     </React.Fragment>
@@ -338,6 +383,9 @@ const ReplyBox = ({ conversationId, inboxId, conversationDetails, enableReplyBut
 const createStyles = theme => {
   const { spacing, borderRadius, fontSize, colors } = theme;
   return StyleSheet.create({
+    replyBoxContainer: {
+      position: 'relative',
+    },
     replyView: {
       paddingVertical: spacing.smaller,
       paddingHorizontal: spacing.small,
@@ -353,12 +401,12 @@ const createStyles = theme => {
     },
     inputView: {
       fontSize: fontSize.sm,
-      color: colors.text,
+      color: colors.textDarker,
+      lineHeight: 18,
       borderRadius: borderRadius.small,
-      paddingTop: 10,
+      paddingTop: !isAndroid ? spacing.half : spacing.smaller,
+      paddingBottom: !isAndroid ? spacing.half : spacing.smaller,
       paddingHorizontal: 10,
-      paddingVertical: spacing.half,
-      textAlignVertical: 'top',
       textAlign: 'left',
       maxHeight: 160,
     },

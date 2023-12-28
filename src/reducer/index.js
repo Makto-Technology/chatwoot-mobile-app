@@ -13,6 +13,8 @@ import teamSlice from './teamSlice';
 import customAttributeSlice from './customAttributeSlice';
 import notificationSlice from './notificationSlice';
 import dashboardAppSlice from './dashboardAppSlice';
+import conversationWatchersSlice from './conversationWatchersSlice';
+import contactsSlice from './contactSlice';
 export const rootReducer = combineReducers({
   cannedResponses: cannedResponseSlice,
   conversations: conversationSlice,
@@ -27,4 +29,6 @@ export const rootReducer = combineReducers({
   auth: authSlice,
   notifications: notificationSlice,
   dashboardApps: dashboardAppSlice,
+  conversationWatchers: conversationWatchersSlice,
+  contacts: contactsSlice,
 });

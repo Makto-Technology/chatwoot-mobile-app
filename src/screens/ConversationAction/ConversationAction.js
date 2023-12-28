@@ -57,6 +57,10 @@ const ConversationActionComponent = ({ onPressAction, conversationDetails }) => 
     return i18n.t('CONVERSATION.SNOOZE_UNTIL_NEXT_REPLY');
   };
 
+  const priority = conversationDetails.priority
+    ? conversationDetails.priority.toUpperCase()
+    : 'NONE';
+
   return (
     <React.Fragment>
       <View style={styles.actionSheetView}>
@@ -66,8 +70,8 @@ const ConversationActionComponent = ({ onPressAction, conversationDetails }) => 
           itemType="assignee"
           iconName="people-outline"
           colors={colors}
-          name={assignedAgent.name ? assignedAgent.name : i18n.t('AGENT.TITLE')}
-          thumbnail={assignedAgent.thumbnail}
+          name={assignedAgent?.name ? assignedAgent.name : i18n.t('AGENT.TITLE')}
+          thumbnail={assignedAgent?.thumbnail}
           availabilityStatus={assignedAgent?.availability_status}
         />
 
@@ -95,6 +99,15 @@ const ConversationActionComponent = ({ onPressAction, conversationDetails }) => 
           colors={colors}
           name={isSnoozed ? snoozeDisplayText() : ''}
           itemType="snooze"
+        />
+
+        <ConversationActionItem
+          onPressItem={onPressAction}
+          iconName="priority-outline"
+          text={i18n.t('CONVERSATION.CHANGE_PRIORITY')}
+          colors={colors}
+          name={i18n.t(`CONVERSATION.PRIORITY.OPTIONS.${priority}`)}
+          itemType="priority"
         />
 
         {shouldShowSelfAssign && (

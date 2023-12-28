@@ -2,10 +2,13 @@ import React, { useRef, useCallback, useMemo } from 'react';
 import { useTheme } from '@react-navigation/native';
 import { useNavigation } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
+import * as Sentry from '@sentry/react-native';
 import PropTypes from 'prop-types';
-import { View, Share, ActivityIndicator, Dimensions, Keyboard } from 'react-native';
-import { getTypingUsersText, getCustomerDetails } from 'helpers';
+import { View, Share, ActivityIndicator, Dimensions, Keyboard, Platform } from 'react-native';
+import { getCustomerDetails } from 'helpers';
+import { getTypingUsersText } from 'helpers/conversationHelpers';
 import { selectConversationToggleStatus } from 'reducer/conversationSlice';
+import { selectors as contactSelectors } from 'reducer/contactSlice';
 import conversationActions from 'reducer/conversationSlice.action';
 import { UserAvatar, Pressable, Text, Icon, InboxName } from 'components';
 import { getInboxName } from 'helpers/conversationHelpers';
@@ -26,6 +29,7 @@ const deviceHeight = Dimensions.get('window').height;
 
 // Bottom sheet items
 import ConversationAction from '../../ConversationAction/ConversationAction';
+import ConversationPriority from './ConversationPriority';
 import SnoozeConversationItems from './SnoozeConversation';
 import AssignTeamConversationItems from './ConversationTeams';
 import LabelConversationItems from './ConversationLabels';
@@ -67,12 +71,14 @@ const ChatHeader = ({
     inbox_id: inboxId,
     status: conversationStatus,
     can_reply: canReply,
-    meta: {
-      sender: { availability_status: availabilityStatus },
-    },
+    meta: { sender: { id: contactId } = {} },
     additional_attributes: additionalAttributes = {},
     muted,
   } = conversationDetails;
+
+  const contact = useSelector(state => contactSelectors.getContactById(state, contactId));
+
+  const { availability_status: availabilityStatus } = contact || {};
 
   const snoozedConversation = conversationStatus === CONVERSATION_STATUS.SNOOZED;
   const pendingConversation = conversationStatus === CONVERSATION_STATUS.PENDING;
@@ -188,12 +194,14 @@ const ChatHeader = ({
         conversationId: currentConversationId,
         accountId: accountId,
       });
-
+      const message = Platform.OS === 'android' ? conversationURL : '';
       await Share.share({
+        message: message,
         url: conversationURL,
       });
+      AnalyticsHelper.track(CONVERSATION_EVENTS.CONVERSATION_SHARE);
     } catch (error) {
-      //error
+      Sentry.captureException(error);
     }
   };
 
@@ -241,6 +249,10 @@ const ChatHeader = ({
       if (itemType === 'snooze') {
         closeActionModal();
         toggleSnoozeActionModal();
+      }
+      if (itemType === 'priority') {
+        closeActionModal();
+        togglePriorityActionModal();
       }
       if (itemType === 'share') {
         onClickShareConversationURL();
@@ -290,7 +302,7 @@ const ChatHeader = ({
 
   // Conversation action modal
   const actionModal = useRef(null);
-  const actionModalModalSnapPoints = useMemo(() => [deviceHeight - 400, deviceHeight - 400], []);
+  const actionModalModalSnapPoints = useMemo(() => [deviceHeight - 380, deviceHeight - 380], []);
   const toggleActionModal = useCallback(() => {
     Keyboard.dismiss();
     actionModal.current.present() || actionModal.current?.dismiss();
@@ -299,7 +311,6 @@ const ChatHeader = ({
     actionModal.current?.dismiss();
   }, []);
 
-  // Conversation action modal
   const snoozeActionModal = useRef(null);
   const snoozeActionModalSnapPoints = useMemo(() => [deviceHeight - 400, deviceHeight - 400], []);
   const toggleSnoozeActionModal = useCallback(() => {
@@ -307,6 +318,16 @@ const ChatHeader = ({
   }, []);
   const closeSnoozeActionModal = useCallback(() => {
     snoozeActionModal.current?.dismiss();
+  }, []);
+
+  // Conversation action modal
+  const priorityActionModal = useRef(null);
+  const priorityActionModalSnapPoints = useMemo(() => [deviceHeight - 400, deviceHeight - 400], []);
+  const togglePriorityActionModal = useCallback(() => {
+    priorityActionModal.current.present() || priorityActionModal.current?.dismiss();
+  }, []);
+  const closePriorityActionModal = useCallback(() => {
+    priorityActionModal.current?.dismiss();
   }, []);
 
   const conversationActionModalSnapPoints = useMemo(
@@ -433,6 +454,21 @@ const ChatHeader = ({
             conversationId={conversationId}
             activeSnoozeValue={activeSnoozeValue()}
             closeModal={closeSnoozeActionModal}
+          />
+        }
+      />
+      <BottomSheetModal
+        bottomSheetModalRef={priorityActionModal}
+        initialSnapPoints={priorityActionModalSnapPoints}
+        showHeader
+        headerTitle={i18n.t('CONVERSATION.CHANGE_PRIORITY')}
+        closeFilter={closePriorityActionModal}
+        children={
+          <ConversationPriority
+            colors={colors}
+            conversationId={conversationId}
+            activePriority={conversationDetails.priority}
+            closeModal={closePriorityActionModal}
           />
         }
       />
